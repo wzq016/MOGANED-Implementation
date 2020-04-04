@@ -43,18 +43,21 @@ class Extractor():
         assert idx_start!=-1 and idx_end!=-1
         return idx_start,idx_end
 
-    def sentence_distillation(self,sents,offsets,dir):
+    def sentence_distillation(self,sents,offsets,direct_offsets,dir):
         mark_split_tag = self.split_tags[dir]
 
         new_sents = []
         new_offsets = []
+        new_direct_offsets = []
 
         if dir == 'cst':
             sents = sents[1:]
             offsets = offsets[1:]
+            direct_offsets = direct_offsets[1:]
 
         for i, sent in enumerate(sents):
             offset_per_sentence = offsets[i]
+            direct_offset_per_sentence = direct_offsets[i]
             select = True
 
             start_posi = 0
@@ -62,10 +65,12 @@ class Extractor():
                 if bool(sum([token.startswith(e) for e in mark_split_tag])):
                     subsent = sent[start_posi:j]
                     suboffset = offset_per_sentence[start_posi:j]
+                    subdirectoffset = direct_offset_per_sentence[start_posi:j]
                     if select and len(subsent) > 0:
                         assert (0, 0) not in suboffset
                         new_sents.append(subsent)
                         new_offsets.append(suboffset)
+                        new_direct_offsets.append(subdirectoffset)
                     start_posi = j + 1
                     select = True
                 elif token.startswith('<'):
@@ -73,11 +78,13 @@ class Extractor():
 
             subsent = sent[start_posi:]
             suboffset = offset_per_sentence[start_posi:]
+            subdirectoffset = direct_offset_per_sentence[start_posi:]
             if select and len(subsent) > 0:
                 assert (0, 0) not in suboffset
                 new_sents.append(subsent)
                 new_offsets.append(suboffset)
-        return new_sents,new_offsets
+                new_direct_offsets.append(subdirectoffset)
+        return new_sents,new_offsets,new_direct_offsets
 
 
     def correct_offsets(self,sents,offsets):
@@ -181,6 +188,9 @@ class Extractor():
                             assert argument_name==entities[entity_id]['name']
                             entities[entity_id]['role'] = role
                         tokens,offsets = nlp.word_tokenize(sent,True)
+                        dependency_parsing = nlp.dependency_parse(sent)
+                        pos_tags = [e[1] for e in nlp.pos_tag(sent)]
+                        ner_tags = [e[1] for e in nlp.ner(sent)]
 
                         plus = 0
                         for j,token in enumerate(tokens):
@@ -221,6 +231,9 @@ class Extractor():
                                          "trigger_end": [trigger_e],
                                          'trigger_offsets':[trigger_offsets],
                                          "entities": [_entities],
+                                         "dependency_parsing":dependency_parsing,
+                                         'pos_tags':pos_tags,
+                                         'ner_tags':ner_tags,
                                          'file': file[:-8],
                                          'dir': dir}
                         offsets_join = str(event_summary['start'])+'_'+str(event_summary['end'])+"_"+event_summary['file']+"_"+event_summary['dir']
@@ -243,17 +256,18 @@ class Extractor():
             path = constant.ACE_FILES+'/'+dir+'/timex2norm'
             files =self.source_files[dir]
             for file in files:
-                event_in_this_file = [(e['start'],e['end']) for e in self.Events if e['file'][:-7]==file[:-3] and e['dir']==dir]
+                event_in_this_file = [(e['start'],e['end']) for e in self.Events if e['file']==file[:-4] and e['dir']==dir]
                 Entities = [(e['start'],e['end']) for e in self.Entities if e['dir']==dir and e['file'][:-7]==file[:-3]]
                 with open(path+'/'+file,'r') as f:
                     text = f.read()
-                sents,offsets = nlp.sent_tokenize(text)
-                sents,offsets = self.correct_offsets(sents,offsets)
-                sents,offsets = self.sentence_distillation(sents,offsets,dir)
+                sents,direct_offsets = nlp.sent_tokenize(text)
+                sents,offsets = self.correct_offsets(sents,direct_offsets)
+                sents,offsets,direct_offsets = self.sentence_distillation(sents,offsets,direct_offsets,dir)
 
 
                 new_sents = []
                 new_offsets = []
+                new_direct_offsets = []
                 for j,sent in enumerate(sents):
                     offset = offsets[j]
                     select = True
@@ -265,22 +279,47 @@ class Extractor():
                     if select:
                         new_sents.append(sent)
                         new_offsets.append(offset)
+                        new_direct_offsets.append(direct_offsets[j])
 
                 sents = new_sents
                 offsets = new_offsets
+                direct_offsets = new_direct_offsets
 
                 for i,sent in enumerate(sents):
                     offset = offsets[i]
+                    direct_offset = direct_offsets[i]
                     tokens = sent
                     start = offset[0][0]
                     end = offset[-1][1]-1
                     tokens_offset = [(e[0],e[1]-1) for e in offset]
+                    tokens_direct_offset = [(e[0],e[1]-1) for e in direct_offset]
                     event_type = 'None'
                     trigger_tokens= []
                     trigger_offsets = []
                     trigger_start = -1
                     trigger_end = -1
                     entities = []
+
+                    origin_sent = text[tokens_direct_offset[0][0]:tokens_direct_offset[-1][-1]+1]
+                    space_link_tokens = ' '.join(tokens)
+
+                    if len(nlp.word_tokenize(origin_sent))==len(tokens):
+                        parse_sent = origin_sent
+                    elif len(nlp.word_tokenize(space_link_tokens))==len(tokens):
+                        parse_sent = space_link_tokens
+                    else:
+                        # print('\n')
+                        # print(origin_sent)
+                        # print(' '.join(tokens))
+                        # print(tokens)
+                        # print(tokens_offset)
+                        # print(nlp.word_tokenize(' '.join(tokens)))
+                        # print(nlp.word_tokenize(origin_sent))
+                        continue    #about 10 sents. won't affect results.
+                    
+                    dependency_parsing = nlp.dependency_parse(parse_sent)
+                    pos_tags = [e[1] for e in nlp.pos_tag(parse_sent)]
+                    ner_tags = [e[1] for e in nlp.ner(parse_sent)]
 
                     _entities = [e for e in Entities if e[0]>=start and e[1]<=end]
                     for e in _entities:
@@ -304,6 +343,9 @@ class Extractor():
                         'trigger_end':trigger_end,
                         'trigger_offsets':trigger_offsets,
                         'entities':entities,
+                        'pos_tags':pos_tags,
+                        'ner_tags':ner_tags,
+                        "dependency_parsing":dependency_parsing,
                         'file':file[:-4],
                         'dir':dir
                     }
@@ -325,6 +367,9 @@ class Extractor():
                         'trigger_end':event['trigger_end'][i],
                         'trigger_offsets':event['trigger_offsets'][i],
                         'entities':event['entities'][i],
+                        "dependency_parsing":event['dependency_parsing'],
+                        'pos_tags':event['pos_tags'],
+                        'ner_tags':event['ner_tags'],
                         'file':event['file'],
                         'dir':event['dir']
                 }
@@ -349,6 +394,9 @@ class Extractor():
                         'trigger_end':i,
                         'trigger_offsets':[event['offsets'][i]],
                         'entities':_entities,
+                        "dependency_parsing":event['dependency_parsing'],
+                        'pos_tags':event['pos_tags'],
+                        'ner_tags':event['ner_tags'],
                         'file':event['file'],
                         'dir':event['dir']
                 }
@@ -369,6 +417,9 @@ class Extractor():
                     'trigger_end':i,
                     'trigger_offsets':[none_event['offsets'][i]],
                     'entities':none_event['entities'],
+                    "dependency_parsing":none_event['dependency_parsing'],
+                    'pos_tags':none_event['pos_tags'],
+                    'ner_tags':none_event['ner_tags'],
                     'file':none_event['file'],
                     'dir':none_event['dir']
                 }
@@ -508,13 +559,35 @@ class Loader():
         trigger_posis,sents,trigger_maskls,trigger_maskrs,event_types,trigger_lexical= [], [], [], [], [], []
         with open(path,'r') as f:
             data = json.load(f)
+        
+        edges_matrix,pos,ner = [],[],[]
+        trigger_idxs = []
         for instance in data:
             tokens = instance['tokens']
             event_type = instance['event_type']
             trigger_posi = instance['trigger_start']
+            
+            ner_tags = [constant.NER_TO_ID[e] if e in constant.NER_TO_ID else 1 for e in instance['ner_tags']]+[0]*(maxlen-len(instance['ner_tags']))
+            pos_tags = [constant.POS_TO_ID[e] if e in constant.NER_TO_ID else 1 for e in instance['pos_tags']]+[0]*(maxlen-len(instance['pos_tags']))
+            ner.append(ner_tags)
+            pos.append(pos_tags)
+
             words = self.get_word(tokens,word2idx,maxlen)
-           
+            dependency_parsing = instance['dependency_parsing']
+
+            start_word = 0
+            current_max = 0
+            edge_matrix = np.zeros([1,maxlen,maxlen],np.float32)
+            for edge in dependency_parsing:
+                if edge[0]=="ROOT":
+                    start_word = max(start_word,current_max)
+                else:
+                    edge_matrix[0,edge[1]-1+start_word,edge[2]-1+start_word] = 1.0
+                current_max = max([current_max,edge[1]+start_word,edge[2]+start_word])
+            edges_matrix.append(edge_matrix)
+
             trigger_posis.append(self.get_positions(trigger_posi,len(tokens),maxlen))
+            trigger_idxs.append(trigger_posi)
             sents.append(words)
             trigger_maskls.append(self.get_trigger_mask(trigger_posi,len(tokens),maxlen,'left'))
             trigger_maskrs.append(self.get_trigger_mask(trigger_posi, len(tokens),maxlen, 'right'))
@@ -534,9 +607,10 @@ class Loader():
                 _trigger_lexical.append(words[trigger_posi+1])
 
             trigger_lexical.append(_trigger_lexical)
-        
+
         return np.array(trigger_posis,np.int32),np.array(sents,np.int32),np.array(trigger_maskls,np.int32),\
-               np.array(trigger_maskrs,np.int32),np.array(event_types,np.int32),np.array(trigger_lexical,np.int32)
+               np.array(trigger_maskrs,np.int32),np.array(event_types,np.int32),np.array(trigger_lexical,np.int32),\
+               np.concatenate(edges_matrix,axis=0),np.array(pos,np.int32),np.array(ner,np.int32),np.array(trigger_idxs,np.int32)
 
     def load_trigger(self):
         print('--Loading Trigger--')
@@ -546,84 +620,5 @@ class Loader():
         results = []
         for path in paths:
             result = self.load_one_trigger(path,maxlen,word2idx)
-            results.append(result)
-        return results
-
-    def load_one_argument(self,path,maxlen,word2idx,max_argument_len,dataset ='train'):
-        sents, event_types, roles, maskl, maskm, maskr, trigger_lexical, argument_lexical,\
-        trigger_maskl, trigger_maskr,trigger_posis,argument_posis = [],[],[],[],[],[],[],[],[],[],[],[]
-
-        with open(path,'r') as f:
-            data = json.load(f)
-        for instance in data:
-            if dataset =='train':
-                if instance['event_type']=='None':
-                    continue
-            if len(instance['entities'])==0:
-                continue
-            tokens = instance['tokens']
-            words = self.get_word(tokens,word2idx,maxlen)
-            trigger_posi = instance['trigger_start']
-            event_type = instance['event_type']
-
-            _trigger_lexical = []
-            if trigger_posi==0:
-                _trigger_lexical.append(0)
-            else:
-                _trigger_lexical.append(words[trigger_posi-1])
-
-            _trigger_lexical.append(words[trigger_posi])
-
-            if trigger_posi==len(tokens)-1:
-                _trigger_lexical.append(0)
-            else:
-                _trigger_lexical.append(words[trigger_posi+1])
-
-            for entity in instance['entities']:
-                role = entity['role']
-                entity_start = entity['idx_start']
-                entity_end = entity['idx_end']
-
-                sents.append(words)
-                event_types.append(constant.EVENT_TYPE_TO_ID[event_type])
-                roles.append(constant.ROLE_TO_ID[role])
-                trigger_posis.append(self.get_positions(trigger_posi,len(tokens),maxlen))
-                argument_posis.append(self.get_positions(entity_start,len(tokens),maxlen))
-                maskl.append(self.get_argument_mask(entity_start,trigger_posi,len(tokens),maxlen,'left'))
-                maskm.append(self.get_argument_mask(entity_start,trigger_posi,len(tokens),maxlen,'mid'))
-                maskr.append(self.get_argument_mask(entity_start,trigger_posi,len(tokens),maxlen,'right'))
-                trigger_lexical.append(_trigger_lexical)
-                
-                trigger_maskl.append(self.get_trigger_mask(trigger_posi,len(tokens),maxlen,'left'))
-                trigger_maskr.append(self.get_trigger_mask(trigger_posi, len(tokens),maxlen, 'right'))
-                
-                _argument_lexical = []
-                if entity_start==0:
-                    _argument_lexical.append(0)
-                else:
-                    _argument_lexical.append(words[entity_start-1])
-                
-                _argument_lexical.extend(words[entity_start:entity_end+1]+[0]*(max_argument_len-entity_end-1+entity_start))
-
-                if entity_end==len(tokens)-1:
-                    _argument_lexical.append(0)
-                else:
-                    _argument_lexical.append(words[entity_end+1])
-                
-                argument_lexical.append(_argument_lexical)
-        return np.array(sents,np.int32),np.array(event_types,np.int32),np.array(roles,np.int32),\
-               np.array(maskl,np.int32),np.array(maskm,np.int32),np.array(maskr,np.int32),\
-               np.array(trigger_lexical,np.int32),np.array(argument_lexical,np.int32),\
-               np.array(trigger_maskl,np.int32),np.array(trigger_maskr,np.int32),\
-               np.array(trigger_posis,np.int32),np.array(argument_posis,np.int32)
-
-    def load_argument(self):
-        print('--Loading Argument--')
-        word2idx,self.wordemb = self.load_embedding()
-        maxlen = self.get_maxlen()
-        max_argument_len = self.get_max_argument_len()
-        results  = []
-        for path,dataset in [(self.train_path,'train'),(self.dev_path,'dev'),(self.test_path,'test')]:
-            result = self.load_one_argument(path,maxlen,word2idx,max_argument_len,dataset)
             results.append(result)
         return results

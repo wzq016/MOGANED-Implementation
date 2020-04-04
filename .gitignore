@@ -100,5 +100,15 @@ venv.bak/
 # mkdocs documentation
 /site
 
+#resource
+/__pycache__
+*/.DS_Stroe
+/data
+/English
+/glove
+/saved_models
+/stanford-corenlp-full-2018-10-05
+
+
 # mypy
 .mypy_cache/
