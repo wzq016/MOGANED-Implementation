@@ -102,7 +102,7 @@ venv.bak/
 
 #resource
 /__pycache__
-*/.DS_Stroe
+*/.DS_Store
 /data
 /English
 /glove
