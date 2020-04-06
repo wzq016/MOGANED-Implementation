@@ -1,10 +1,10 @@
 import tensorflow as tf
 import constant
-from func import get_batch,get_trigger_feeddict,f_score,get_argument_feeddict,GAC_func,Cudnn_RNN
+from func import get_batch,get_trigger_feeddict,f_score,GAC_func,Cudnn_RNN,matmuls
 import numpy as np
 
 class Trigger_Model():
-    def __init__(self,t_data,maxlen,wordemb,stage="GAT"):
+    def __init__(self,t_data,maxlen,wordemb,stage="MOGANED"):
         self.t_train,self.t_dev,self.t_test = t_data
         self.maxlen = maxlen
         self.wordemb = wordemb
@@ -16,7 +16,7 @@ class Trigger_Model():
             print('--Building Trigger DMCNN Graph--')
             self.build_trigger()
         else:
-            print('--Building Trigger GAT Graph')
+            print('--Building Trigger MOGANED Graph--')
             self.build_GAT()
 
     def build_trigger(self,scope='DMCNN_Trigger'):
@@ -80,7 +80,7 @@ class Trigger_Model():
                 self.loss = loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=labels,logits=logits),axis=0)
                 self.train_op = train_op = tf.train.AdamOptimizer(constant.t_lr).minimize(loss)
 
-    def build_GAT(self,scope='GAT_Trigger'):
+    def build_GAT(self,scope='MOGANED_Trigger'):
         maxlen = self.maxlen
         num_class = len(constant.EVENT_TYPE_TO_ID)
         keepprob = constant.t_keepprob
@@ -113,9 +113,12 @@ class Trigger_Model():
                 self.ner_idx = ner_idx = tf.placeholder(tf.int32,[None,maxlen],'ner_tags')
                 self.pos_idx = pos_idx = tf.placeholder(tf.int32,[None,maxlen],'pos_tags')
 
-                self.subg_a = subg_a = tf.placeholder(tf.float32,[None,maxlen,maxlen],'subg')
+                self.subg_a =  tf.sparse_placeholder(tf.float32,[None,maxlen,maxlen],'subg')
 
-                self.subg_b = subg_b = tf.transpose(subg_a,[0,2,1])
+                self.subg_b =  tf.sparse_transpose(self.subg_a,[0,2,1])
+
+                subg_a = tf.sparse_tensor_to_dense(self.subg_a,validate_indices=False)
+                subg_b = tf.sparse_tensor_to_dense(self.subg_b,validate_indices=False)
 
                 self.gather_idxs = tf.placeholder(tf.int32,[None,2],'gather_idxs')
 
@@ -138,7 +141,7 @@ class Trigger_Model():
             with tf.variable_scope("GAC"):
                 hs = []
                 for layer in range(1,constant.K+1):
-                    h_layer= GAC_func(ps,subg_a**layer,maxlen,'a',layer)+GAC_func(ps,subg_b**layer,maxlen,'b',layer)+GAC_func(ps,eyes,maxlen,'c',layer)
+                    h_layer= GAC_func(ps,matmuls(subg_a,layer),maxlen,'a',layer)+GAC_func(ps,matmuls(subg_b,layer),maxlen,'b',layer)+GAC_func(ps,eyes,maxlen,'c',layer)
                     hs.append(h_layer)
 
             with tf.variable_scope("Aggregation"):
@@ -154,17 +157,18 @@ class Trigger_Model():
                 gather_final_h = tf.gather_nd(final_h,self.gather_idxs)
             
             with tf.variable_scope('classifier'):
+                bias_weight = (constant.t_bias_lambda-1)*(1-tf.cast(tf.equal(_labels,0),tf.float32))+1
                 self.logits = logits = tf.layers.dense(gather_final_h,num_class,kernel_initializer=tf.contrib.layers.xavier_initializer(),bias_initializer=tf.contrib.layers.xavier_initializer(),name='Wo')
                 self.pred = pred = tf.nn.softmax(logits,axis=1)
                 self.pred_label = pred_label = tf.argmax(pred,axis=1)
-                self.loss = loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=labels,logits=logits),axis=0)
-                # self.train_op = train_op = tf.train.GradientDescentOptimizer(constant.t_lr).minimize(loss)
+                self.loss = loss = tf.reduce_sum(bias_weight*tf.nn.softmax_cross_entropy_with_logits_v2(labels=labels,logits=logits),axis=0)/tf.reduce_sum(bias_weight,axis=0)
                 self.train_op = train_op = tf.train.AdamOptimizer(constant.t_lr).minimize(loss)
                 
                 
     def train_trigger(self):
         train,dev,test = self.t_train,self.t_dev,self.t_test
         saver = tf.train.Saver()
+        maxlen = self.maxlen
         print('--Training Trigger--')
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
@@ -174,24 +178,24 @@ class Trigger_Model():
             for epoch in tqdm(range(constant.t_epoch)):
                 loss_list =[]
                 for batch in get_batch(train,constant.t_batch_size,True):
-                    loss,_ = sess.run([self.loss,self.train_op],feed_dict=get_trigger_feeddict(self,batch,self.stage))
+                    loss,_ = sess.run([self.loss,self.train_op],feed_dict=get_trigger_feeddict(self,batch,self.stage,maxlen))
                     loss_list.append(loss)
                 print('epoch:{}'.format(str(epoch)))
                 print('loss:',np.mean(loss_list))
 
                 pred_labels = []
                 for batch in get_batch(dev,constant.t_batch_size,False):
-                    pred_label = sess.run(self.pred_label,feed_dict=get_trigger_feeddict(self,batch,self.stage,is_train=False))
+                    pred_label = sess.run(self.pred_label,feed_dict=get_trigger_feeddict(self,batch,self.stage,maxlen,is_train=False))
                     pred_labels.extend(list(pred_label))
-                golds = list(dev[4])
+                golds = list(dev[0][4])
                 dev_p,dev_r,dev_f = f_score(pred_labels,golds)
                 print("dev_Precision: {} dev_Recall:{} dev_F1:{}".format(str(dev_p),str(dev_r),str(dev_f)))
 
                 pred_labels = []
                 for batch in get_batch(test,constant.t_batch_size,False):
-                    pred_label = sess.run(self.pred_label,feed_dict=get_trigger_feeddict(self,batch,self.stage,is_train=False))
+                    pred_label = sess.run(self.pred_label,feed_dict=get_trigger_feeddict(self,batch,self.stage,maxlen,is_train=False))
                     pred_labels.extend(list(pred_label))
-                golds = list(test[4])
+                golds = list(test[0][4])
                 test_p, test_r, test_f = f_score(pred_labels, golds)
                 print("test_Precision: {} test_Recall:{} test_F1:{}\n".format(str(test_p), str(test_r), str(test_f)))
 

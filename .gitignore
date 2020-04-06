@@ -108,7 +108,9 @@ venv.bak/
 /glove
 /saved_models
 /stanford-corenlp-full-2018-10-05
-
+LICENSE
+pure_test.py
+pure_test2.py
 
 # mypy
 .mypy_cache/

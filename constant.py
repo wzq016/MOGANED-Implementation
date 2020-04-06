@@ -22,13 +22,16 @@ INF = 1e8
 embedding_dim = 100
 posi_embedding_dim = 50
 event_type_embedding_dim = 5
+cut_len = 50                    #set None to not cut length
+
 
 #trigger hyperparameters
 t_filters = 200
 t_batch_size = 30
 t_lr = 0.001
-t_epoch = 5
+t_epoch = 10
 t_keepprob = 0.7
+t_bias_lambda = 1
 
 #GAT hypers
 pos_dim = 50
@@ -41,5 +44,5 @@ s_dim = 100
 leaky_alpha = 0.2
 graph_dim = 150
 
-K=1
+K=3
 

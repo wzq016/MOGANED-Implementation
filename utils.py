@@ -475,11 +475,12 @@ class StanfordCoreNLPv2(StanfordCoreNLP):
         return tokens, spans
 
 class Loader():
-    def __init__(self):
+    def __init__(self,cut_len):
         self.train_path = constant.ACE_DUMP+'/train.json'
         self.dev_path = constant.ACE_DUMP+'/dev.json'
         self.test_path = constant.ACE_DUMP+'/test.json'
         self.glove_path = constant.GloVe_file
+        self.cut_len = cut_len
 
     def load_embedding(self):
         word2idx = {}
@@ -495,6 +496,9 @@ class Loader():
         return word2idx,np.asarray(wordemb,np.float32)
 
     def get_maxlen(self):
+        if self.cut_len!=None:
+            self.maxlen = self.cut_len
+            return self.maxlen
         paths = [self.train_path,self.dev_path,self.test_path]
         maxlens = []
         for path in paths:
@@ -541,34 +545,22 @@ class Loader():
         else:
             mask[posi:sent_len] = [1.]*(sent_len-posi)
         return mask
-    
-    def get_argument_mask(self,posi1,posi2,sent_len,maxlen,direction):
-        assert direction in ['left','right','mid']
-        mask = [0.]*maxlen
-        posi_min = min(posi1,posi2)
-        posi_max = max(posi1,posi2)
-        if direction=='left':
-            mask[:posi_min] = [1.]*posi_min
-        elif direction=='mid':
-            mask[posi_min:posi_max] = [1.]*(posi_max-posi_min)
-        else:
-            mask[posi_max:sent_len] = [1.]*(sent_len-posi_max)
-        return mask
 
     def load_one_trigger(self,path,maxlen,word2idx):
         trigger_posis,sents,trigger_maskls,trigger_maskrs,event_types,trigger_lexical= [], [], [], [], [], []
         with open(path,'r') as f:
             data = json.load(f)
         
-        edges_matrix,pos,ner = [],[],[]
+        indices_s,pos,ner = [],[],[]
         trigger_idxs = []
         for instance in data:
-            tokens = instance['tokens']
+            tokens = instance['tokens'][:maxlen]
             event_type = instance['event_type']
             trigger_posi = instance['trigger_start']
-            
-            ner_tags = [constant.NER_TO_ID[e] if e in constant.NER_TO_ID else 1 for e in instance['ner_tags']]+[0]*(maxlen-len(instance['ner_tags']))
-            pos_tags = [constant.POS_TO_ID[e] if e in constant.NER_TO_ID else 1 for e in instance['pos_tags']]+[0]*(maxlen-len(instance['pos_tags']))
+            if trigger_posi>maxlen-1:
+                continue
+            ner_tags = [constant.NER_TO_ID[e] if e in constant.NER_TO_ID else 1 for e in instance['ner_tags']][:maxlen]+[0]*(maxlen-len(instance['ner_tags']))
+            pos_tags = [constant.POS_TO_ID[e] if e in constant.NER_TO_ID else 1 for e in instance['pos_tags']][:maxlen]+[0]*(maxlen-len(instance['pos_tags']))
             ner.append(ner_tags)
             pos.append(pos_tags)
 
@@ -577,14 +569,16 @@ class Loader():
 
             start_word = 0
             current_max = 0
-            edge_matrix = np.zeros([1,maxlen,maxlen],np.float32)
+            indices = []
             for edge in dependency_parsing:
                 if edge[0]=="ROOT":
                     start_word = max(start_word,current_max)
                 else:
-                    edge_matrix[0,edge[1]-1+start_word,edge[2]-1+start_word] = 1.0
+                    if edge[1]-1+start_word>maxlen-1 or edge[2]-1+start_word>maxlen-1:
+                        continue
+                    indices.append([edge[1]-1+start_word,edge[2]-1+start_word])
                 current_max = max([current_max,edge[1]+start_word,edge[2]+start_word])
-            edges_matrix.append(edge_matrix)
+            indices_s.append(indices)
 
             trigger_posis.append(self.get_positions(trigger_posi,len(tokens),maxlen))
             trigger_idxs.append(trigger_posi)
@@ -608,9 +602,9 @@ class Loader():
 
             trigger_lexical.append(_trigger_lexical)
 
-        return np.array(trigger_posis,np.int32),np.array(sents,np.int32),np.array(trigger_maskls,np.int32),\
+        return (np.array(trigger_posis,np.int32),np.array(sents,np.int32),np.array(trigger_maskls,np.int32),\
                np.array(trigger_maskrs,np.int32),np.array(event_types,np.int32),np.array(trigger_lexical,np.int32),\
-               np.concatenate(edges_matrix,axis=0),np.array(pos,np.int32),np.array(ner,np.int32),np.array(trigger_idxs,np.int32)
+               np.array(pos,np.int32),np.array(ner,np.int32),np.array(trigger_idxs,np.int32)),indices_s
 
     def load_trigger(self):
         print('--Loading Trigger--')

@@ -1,5 +1,5 @@
-# Hierarchical Modular Event Argument Extraction
-The code is an implementation of Hierarchical Modular Event Argument Extraction (EMNLP19 paper).
+# MOGANED-Implementaion
+The code is an **unofficial** implementation of [Event Detection with Multi-order Graph Convolution and Aggregated Attention](https://www.aclweb.org/anthology/D19-1582/) (EMNLP19 paper). (The official code is not released, and this code is for a reference.)
 
 # Requirments
 tensorflow-gpu==1.10
@@ -15,7 +15,7 @@ To run this code, you need to:
 1. put ```English``` folder of ACE05 dataset into ```./```, or you can modify path in ```constant.py```. (You can get ACE2005 dataset here: https://catalog.ldc.upenn.edu/LDC2006T06)
 2. put stanford language model into ```./```, or you can modify path in ```constant.py```. (You can download here: https://stanfordnlp.github.io/CoreNLP/history.html)
 3. put GloVe embedding file into ```./glove``` folder, or you can modify path in ```constant.py```. (You can download GloVe embedding here: https://nlp.stanford.edu/projects/glove/)
-4. Run ```python train.py --gpu 0 --mode HMEAE``` to run with HMEAE model.  Run ```python train.py --gpu 0 --mode DMCNN``` to run with DMCNN model.
+4. Run ```python train.py --gpu 0 --mode MOGANED``` to run with MOGANED model.  Run ```python train.py --gpu 0 --mode DMCNN``` to run with DMCNN model.
 
 All parameters are in ```constant.py```, you can modify them as you wish.
 
@@ -36,6 +36,9 @@ Each file is composed of a list, which elements are instances with following for
     "trigger_end":XX,       #end index of trigger words of tokens, an integer
     "trigger_offsets":XX,   #offsets of trigger words, a list with tuple elements
     "event_type":XX,        #event type of tokens with given triggers, a string
+    "ner":XX,               #ner tag of each token, a list
+    "pos":XX,               #pos tag of each token, a list
+    "dependency":XX,        #dependency parsing results of tokens with StanfordCoreNLP format, a list
     "file":XX,              #file name without suffix
     "dir":XX,               #dir name
     "entities":XX           #entitie in this sentencem, a list with entity elements
@@ -55,8 +58,20 @@ Each entity is a dictionary with following format:
     "idx_end":XX            #end index in tokens, an integer
 }
 ```
+# Results
+Depends on the split of train/dev/test, results will have some change accordingly, but won't change much.
+I use [this split](https://github.com/thunlp/HMEAE/blob/master/logs/split.json) and get following results:
+|Method|Precision|Recall|F1|
+|--|--|--|--|
+|MOGANED(Paper)|79.5|72.3|75.7|
+|MOGANED(This code)|72.4|71.0|71.7|
 
-# Cite
-If the codes help you, please cite our paper:
+# Note
+There are some differences on training strategy between this code and the original paper:
+1. The code doesn't use BIO schema. This is because trigger words are usually a single word rather than a phrase in ACE05, this won't affect results in ACE05.
+2. The code doesn't use L2-norm, only use dropout. From my personal experience, this won't affect results much. 
+3. The code uses AdamOptimizer rather than AdadeltaOptimizer. During experiments, I found Adadelta can't train a good classifier, however, Adam can. 
+4. This code sets bias loss lambda to 1 rather than 5 since I found this will make F1 score higher.
 
-**HMEAE: Hierarchical Modular Event Argument Extraction.** *XiaoZhi Wang, Ziqi Wang, Xu Han, Zhiyuan Liu, Juanzi Li, Peng Li, Maosong Sun, Jie Zhou, Xiang Ren.* EMNLP-IJCNLP 2019.
+# TODO
+The code structure is quite like [another repo](https://github.com/thunlp/HMEAE), I will merge these codes if I have time in future.

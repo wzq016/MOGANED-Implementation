@@ -1,28 +1,16 @@
 # import tensorflow as tf
+# import os
+# os.environ['CUDA_VISIBLE_DEVICES']='0'
 
-# a = tf.constant([[1,2],[3,4]],tf.int32)
-# b = a = tf.constant([[1,2],[3,4]],tf.int32)
-
-# c = tf.expand_dims(a,axis=2)
-# d = tf.expand_dims(b,axis=1)
-
-# e = tf.multiply(c,d)
-# print(e)
+# a = tf.constant([0,1,0,4],tf.int32)
+# c = tf.constant([2,3,4,5],tf.int32)
+# b = (5-1)*(1-tf.cast(tf.equal(a,0),tf.float32))+1
 # with tf.Session() as sess:
-#     f = sess.run(e)
+#     print(sess.run(b))
 
-a = [1,2,3,4]
-import random
-random.seed(10)
-
-from pure_test2 import f
-a = f(a)
-print(a)
-a = f(a)
-print(a)
-a = f(a)
-print(a)
-a = f(a)
-print(a)
-a = f(a)
-print(a)
+from stanfordcorenlp import StanfordCoreNLP
+nlp = StanfordCoreNLP('./stanford-corenlp-full-2018-10-05')
+word,span = nlp.word_tokenize('hello, i\'m ben',True)
+print(word)
+print(span)
+nlp.close()

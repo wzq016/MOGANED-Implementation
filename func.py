@@ -2,6 +2,7 @@ import numpy as np
 import random
 import tensorflow as tf
 import constant
+from tqdm import tqdm
 
 class Cudnn_RNN:
 
@@ -97,41 +98,33 @@ def f_score(predict,golden,mode='f'):
     else:
         return TP,FN,FP,TN
 
-def get_batch(data,batch_size,shuffle=True):
+def get_batch(data_all,batch_size,shuffle=True):
+    data,data_subg = data_all
     assert len(list(set([np.shape(d)[0] for d in data]))) == 1
     num_data = np.shape(data[0])[0]
     indices = list(np.arange(0,num_data))
     if shuffle:
         random.shuffle(indices)
-    for i in range((num_data // batch_size)+1):
+    for i in tqdm(range((num_data // batch_size)+1)):
         select_indices = indices[i*batch_size:(i+1)*batch_size]
-        yield [np.take(d,select_indices,axis=0) for d in data]
+        select_subg_indices = [[idx]+indice for idx,select_indice in enumerate(select_indices) for indice in data_subg[select_indice]]
+        yield [np.take(d,select_indices,axis=0) for d in data]+[select_subg_indices]
 
-def get_trigger_feeddict(model,batch,stage,is_train=True):
+def get_trigger_feeddict(model,batch,stage,maxlen,is_train=True):
     if stage=='DMCNN':
         posis,sents,maskls,maskrs,event_types,lexical,_,_,_,_ = batch
         return {model.posis:posis,model.sents:sents,model.maskls:maskls,model.maskrs:maskrs,
                 model._labels:event_types,model.lexical:lexical,model.is_train:is_train}
     else:
-        posis,sents,maskls,maskrs,event_types,lexical,subg,pos,ner,trigger_idxs = batch
+        posis,sents,maskls,maskrs,event_types,lexical,pos,ner,trigger_idxs,subg_indices = batch
+        subg_vals = [1.0]*len(subg_indices)
+        subg_shape = [sents.shape[0],maxlen,maxlen]
+        subg = (subg_indices,subg_vals,subg_shape)
+
         gather_idxs = np.stack([np.array(np.arange(posis.shape[0])),trigger_idxs],axis=1)
         return {model.posis:posis,model.sents:sents,model.maskls:maskls,model.maskrs:maskrs,
                 model._labels:event_types,model.lexical:lexical,model.is_train:is_train,
                 model.pos_idx:pos,model.ner_idx:ner,model.subg_a:subg,model.gather_idxs:gather_idxs}
-
-def get_argument_feeddict(model,batch,is_train=True,stage='trigger'):
-    sents,event_types,roles,maskl,maskm,maskr,\
-    trigger_lexical,argument_lexical,trigger_maskl,trigger_maskr,trigger_posis,argument_posis = batch
-
-    if stage=='trigger':
-        return get_trigger_feeddict(model,(trigger_posis,sents,trigger_maskl,trigger_maskr,event_types,trigger_lexical),False)
-    elif stage=="argument":
-        return {model.sents:sents,model.trigger_posis:trigger_posis,model.argument_posis:argument_posis,
-                model.maskls:maskl,model.maskms:maskm,model.maskrs:maskr,
-                model.trigger_lexical:trigger_lexical,model.argument_lexical:argument_lexical,
-                model._labels:roles,model.is_train:is_train,model.event_types:event_types}
-    else:
-        raise ValueError("stage could only be trigger or argument")
 
 
 #GAT util function
@@ -165,3 +158,9 @@ def GAC_func(ps,subg,maxlen,a,k):
         graph_emb = tf.nn.elu(sums,name='elu_1')
     return graph_emb
         
+def matmuls(a,times):
+    with tf.variable_scope('matmuls_'):
+        res = a
+        for i in range(times-1):
+            res = tf.matmul(res,a)
+    return res
