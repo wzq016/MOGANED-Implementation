@@ -1,4 +1,4 @@
-# MOGANED-Implementaion
+# MOGANED-Implementation
 The code is an **unofficial** implementation of [Event Detection with Multi-order Graph Convolution and Aggregated Attention](https://www.aclweb.org/anthology/D19-1582/) (EMNLP19 paper). (The official code is not released, and this code is for a reference.)
 
 # Requirments
