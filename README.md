@@ -19,6 +19,8 @@ To run this code, you need to:
 
 All parameters are in ```constant.py```, you can modify them as you wish.
 
+To run it on MAVEN Dataset, see [MAVEN dataset repo](https://github.com/THU-KEG/MAVEN-dataset/).
+
 # Dataset
 Due to license limitation, we can't distribute datasets directly, please download the dataset by yourself. The download link is given in **Usage** part.
 
